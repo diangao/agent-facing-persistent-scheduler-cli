@@ -98,17 +98,36 @@ natural-language confirmation or failure report, not the internals.
 This is what keeps a user from being told "rule r_abc123 created in
 namespace foo at /var/...sqlite3" when they asked for a reminder.
 
-### 4. Fire-prompt minimalism
+### 4. Explicit reminder payload + fire-prompt minimalism
 
 > Append-system-prompt teaches capability and response policy once; the
 > fire event carries only the due reminder fact.
 
-Concretely, when the adapter wraps a `scheduler.fire` event as input to
-its runtime, the wrapped turn MUST be task-facing only:
+Adapters that expose reminders MUST store user-facing reminders as
+structured payloads instead of requiring the runtime to preserve the
+recipient inside free text. The recommended shape is:
+
+```json
+{
+  "kind": "reminder",
+  "action": "remind",
+  "recipient": "<user | runtime>",
+  "message": "<short reminder content>"
+}
+```
+
+`recipient` is the subject/destination the adapter renders into the fired
+turn. `message` is the compact reminder content; it should not need to
+repeat the recipient. Optional debug fields such as `source_text` MAY be
+stored for audit, but MUST NOT be included in the fired turn by default.
+
+Concretely, when the adapter wraps a `scheduler.fire` event as input to its
+runtime, the wrapped turn MUST be task-facing only:
 
 - a structured metadata header containing `source`, `time`, optional
   `rule_id`, `target`, and `title`;
-- the payload `text` (or equivalent field) as-is.
+- a concise rendered reminder line derived from the payload's structured
+  `recipient` and `message`.
 
 The wrapped turn MUST NOT contain:
 
@@ -125,7 +144,7 @@ The reference shape:
 
 ```text
 [source=scheduler time=<ISO time>]
-Reminder: <payload text>
+Reminder for <recipient>: <message>
 ```
 
 That is enough. Anything more is friction; multiple-hop reasoning,
@@ -172,9 +191,14 @@ Available commands:
 - `agent-scheduler create --every <duration like 1h / 1d / 1w> --payload '<JSON object>'` (recurring)
 - `agent-scheduler list / show <rule_id> / update <rule_id> / snooze <rule_id> / cancel <rule_id> / log <rule_id>`
 
-When creating a rule, put the future user-facing reminder or action in the
-payload. Do not put scheduler internals in the payload. Do not claim a
-reminder is scheduled unless the command succeeds.
+When creating a user-facing reminder, use an explicit payload such as:
+
+`{"kind":"reminder","action":"remind","recipient":"user","message":"drink water"}`
+
+When creating a runtime self-check, use `recipient:"runtime"`. Keep
+`message` short; the adapter renders the recipient later. Do not put
+scheduler internals in the payload. Do not claim a reminder is scheduled
+unless the command succeeds.
 
 Scheduler command output, rule IDs, namespace/target labels, DB paths, and
 command transcripts are internal operational evidence. User-facing replies
@@ -217,9 +241,14 @@ you, do not isolate your rules from other rules on the same store, and do
 not protect any payload contents. Real cross-runtime isolation is one
 store per trust boundary, configured by the host.
 
-When creating a rule, put the future user-facing reminder or action in the
-payload. Do not put scheduler internals in the payload. Do not claim a
-reminder is scheduled unless the command succeeds.
+When creating a user-facing reminder, use an explicit payload such as:
+
+`{"kind":"reminder","action":"remind","recipient":"user","message":"drink water"}`
+
+When creating a runtime self-check, use `recipient:"runtime"`. Keep
+`message` short; the adapter renders the recipient later. Do not put
+scheduler internals in the payload. Do not claim a reminder is scheduled
+unless the command succeeds.
 
 Scheduler command output, rule IDs, namespace/target labels, DB paths, and
 command transcripts are internal operational evidence. User-facing replies
