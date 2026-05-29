@@ -100,6 +100,28 @@ def cmd_cancel(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    store = _store(args)
+    try:
+        next_fire_at = None
+        if args.at or args.in_:
+            next_fire_at = parse_due_time(at=args.at, in_=args.in_)
+        payload = None
+        if args.payload is not None or args.payload_file is not None or args.payload_stdin:
+            payload = _load_payload(args)
+        rule = store.update_rule(
+            args.rule_id,
+            title=args.title,
+            next_fire_at=next_fire_at,
+            payload=payload,
+            interval=args.every,
+        )
+        _print_json(_rule_to_dict(rule))
+        return 0
+    finally:
+        store.close()
+
+
 def _run_due_once(store: SchedulerStore, *, now: datetime | None, limit: int | None) -> int:
     emitted = 0
     for rule in store.due_rules(now=now, limit=limit):
@@ -180,6 +202,19 @@ def build_parser() -> argparse.ArgumentParser:
     cancel = sub.add_parser("cancel", help="disable one rule")
     cancel.add_argument("rule_id")
     cancel.set_defaults(func=cmd_cancel)
+
+    update = sub.add_parser("update", help="update one rule without changing its id")
+    update.add_argument("rule_id")
+    update.add_argument("--title")
+    due_update = update.add_mutually_exclusive_group()
+    due_update.add_argument("--at", help="ISO datetime, e.g. 2026-05-29T20:00:00Z")
+    due_update.add_argument("--in", dest="in_", help="relative duration, e.g. 10m, 2h, 1d")
+    update.add_argument("--every", help="repeat interval, e.g. 30m, 1h, 1d")
+    payload_update = update.add_mutually_exclusive_group()
+    payload_update.add_argument("--payload", type=_json_arg, help="JSON object payload")
+    payload_update.add_argument("--payload-file", help="read JSON object payload from file")
+    payload_update.add_argument("--payload-stdin", action="store_true", help="read JSON object payload from stdin")
+    update.set_defaults(func=cmd_update)
 
     run_due = sub.add_parser("run-due", help="emit due scheduler.fire events as NDJSON")
     run_due.add_argument("--now", help="override current time, ISO datetime")

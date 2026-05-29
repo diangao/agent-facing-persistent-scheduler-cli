@@ -48,6 +48,12 @@ List rules:
 agent-scheduler list
 ```
 
+Update a rule without changing its id or run history:
+
+```bash
+agent-scheduler update r_abc123 --in 1h --payload '{"type":"agent.reminder","text":"Check the draft later."}'
+```
+
 Emit due events as NDJSON:
 
 ```bash
@@ -89,7 +95,7 @@ Implemented:
 - local SQLite store under `~/.agent-scheduler/scheduler.sqlite3`
 - one-shot rules via `--at` or `--in`
 - interval rules via `--every`
-- `create`, `list`, `show`, `cancel`, `log`, `run-due`, `fire-now`, `daemon`
+- `create`, `list`, `show`, `update`, `cancel`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
 - NDJSON fire events
 
