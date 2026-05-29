@@ -72,13 +72,13 @@ binding to any particular host runtime.
   poll interval), reloads the store, computes due rules, fires them, persists
   the next fire time for recurring rules, and re-arms. No assumption of process
   liveness between ticks. No reliance on host wakeups.
-- **Missed-fire surfacing, not auto-fire.** If the daemon restarts and finds a
-  one-shot rule whose scheduled time is already in the past, the correct action
-  is to surface the miss to the consumer, not to fire silently as if the time
-  had arrived. The proposed shape for v0.1.x is a `scheduler.missed` event
+- **Missed-fire surfacing, not auto-fire.** If the daemon restarts or wakes
+  after a long sleep and finds a rule whose scheduled time is past the grace
+  window, the correct action is to surface the miss to the consumer, not to fire
+  silently as if the time had arrived. The shape is a `scheduler.missed` event
   alongside `scheduler.fire`; consumers decide whether to treat the miss as a
   late fire or to skip it. See the event spec below.
-- **Run logs.** Every fire — and, when added, every miss — appends a run-log
+- **Run logs.** Every fire and every miss appends a run-log
   entry that the CLI can list. The run log is part of the inert state the core
   owns; it is not an event stream over the network.
 - **Per-rule cap, optional auto-expire, kill switch.** A rule may carry a
@@ -116,11 +116,13 @@ Emitted when a rule fires.
 }
 ```
 
-### `scheduler.missed` (proposed, not yet implemented)
+### `scheduler.missed`
 
-Emitted on daemon startup or after a long sleep when a one-shot rule's
-`scheduled_for` is already in the past. The core does not auto-fire; the
-consumer reads the miss and decides.
+Emitted by `run-due` or `daemon` when a rule's persisted `scheduled_for` is
+more than 60 seconds in the past. That grace window lets slightly late ticks
+still produce `scheduler.fire`; real downtime or long sleep becomes
+`scheduler.missed`. The core does not auto-fire; the consumer reads the miss
+and decides.
 
 ```json
 {
@@ -144,6 +146,10 @@ The consumer's options on a `scheduler.missed`:
 - Ask a human — surface the miss to a user and gate the late-fire decision.
 
 The core has no opinion among these.
+
+For a one-shot rule, `scheduler.missed` disables the rule. For an interval
+rule, `scheduler.missed` emits once and advances `next_fire_at` to the next
+future slot; skipped intervals are not burst-fired.
 
 ## Design principles
 

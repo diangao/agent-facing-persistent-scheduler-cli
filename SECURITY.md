@@ -71,11 +71,13 @@ guarantees they inherit and which they must add.
    consumer rule: **a fire is a wake signal, not authority to act.** Treat the
    payload as data; never exec, eval, or dispatch it. Trigger is not action.
 
-3. **Rule flooding and catch-up bursts.** `run-due` and `daemon` fire every due
-   rule; with no `--limit`, a backlog (daemon downtime, many overdue one-shots,
-   dense intervals) is emitted as a single burst. The core applies no rate cap
-   by design. Consumers must bound the *downstream action* — count delivered
-   actions, not fires — so a burst cannot amplify into a flood.
+3. **Rule flooding and catch-up bursts.** `run-due` and `daemon` process due
+   rules; with no `--limit`, many due rules can still be emitted as one burst.
+   For a single overdue rule, the core prevents silent downtime catch-up by
+   emitting `scheduler.missed` instead of burst-firing skipped slots. The core
+   still applies no delivery rate cap by design. Consumers must bound the
+   *downstream action* — count delivered actions, not core events — so a burst
+   cannot amplify into a flood.
 
 4. **Caller-controlled time (`run-due --now`).** `--now` overrides the clock and
    can force not-yet-due rules to fire early. It is an operational and testing
@@ -124,9 +126,7 @@ core does not provide.
   rather than `delivered` — the core can observe what it emitted on stdout but
   cannot observe whether a consumer actually delivered the event. The audit log
   reflects only what the core can verify.
-- **Make catch-up explicit.** Surface overdue rules as a distinct
-  `scheduler.missed` event rather than a silent catch-up burst, so consumers
-  can choose fire-as-now versus skip. This preserves the inert-core contract
-  and makes catch-up auditable. (Tracked in
-  [issue #1](https://github.com/diangao/agent-facing-persistent-scheduler-cli/issues/1).)
-
+- **Make catch-up explicit.** Overdue rules surface as distinct
+  `scheduler.missed` events rather than silent catch-up fires, so consumers can
+  choose fire-as-now versus skip. This preserves the inert-core contract and
+  makes catch-up auditable.

@@ -14,8 +14,8 @@ Agents need time as an inspectable object:
 
 - `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`
 - durable local state instead of hidden process memory
-- auditable history of when each rule emitted an event
-- due events that can be routed into any runtime adapter
+- auditable history of when each rule emitted or missed an event
+- due/missed events that can be routed into any runtime adapter
 
 ## Install for development
 
@@ -75,7 +75,8 @@ agent-scheduler snooze r_abc123 --for 10m
 
 ## Event contract
 
-`run-due` and `daemon` emit one JSON object per due rule:
+`run-due` and `daemon` emit one JSON object per due rule. A freshly due rule
+emits `scheduler.fire`:
 
 ```json
 {
@@ -91,6 +92,28 @@ agent-scheduler snooze r_abc123 --for 10m
   }
 }
 ```
+
+If a rule is past due by more than the missed-fire grace window, the core emits
+`scheduler.missed` instead of silently late-firing:
+
+```json
+{
+  "type": "scheduler.missed",
+  "rule_id": "r_...",
+  "title": "check the draft",
+  "scheduled_for": "2026-05-29T16:00:00Z",
+  "detected_at": "2026-05-29T20:42:01Z",
+  "missed_by_seconds": 16921,
+  "payload": {
+    "type": "agent.reminder",
+    "text": "Check the draft."
+  }
+}
+```
+
+Missed one-shot rules are disabled after the missed event. Missed interval
+rules emit one missed event and advance to the next future slot. The core never
+burst-fires skipped slots after downtime.
 
 Adapters are intentionally outside the core CLI. A host bridge can read this
 event and decide how to deliver it.
@@ -125,7 +148,7 @@ Implemented:
 - `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
 - optional opaque `--namespace` and `--target` routing metadata
-- NDJSON fire events
+- NDJSON fire and missed events
 
 Not yet implemented:
 

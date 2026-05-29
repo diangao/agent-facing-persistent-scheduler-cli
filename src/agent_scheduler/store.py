@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import sqlite3
@@ -12,6 +12,7 @@ from .timeparse import format_dt, parse_datetime, parse_duration, utc_now
 
 DEFAULT_HOME = Path.home() / ".agent-scheduler"
 DEFAULT_DB = DEFAULT_HOME / "scheduler.sqlite3"
+MISSED_GRACE_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -243,9 +244,7 @@ class SchedulerStore:
             ),
         )
         if rule.schedule_kind == "interval" and rule.interval_seconds:
-            next_fire = rule.next_fire_at
-            while next_fire <= fired:
-                next_fire = next_fire + parse_duration(f"{rule.interval_seconds}s")
+            next_fire = _next_future_fire(rule, after=fired)
             self.conn.execute(
                 "update rules set next_fire_at = ?, updated_at = ? where id = ?",
                 (format_dt(next_fire), format_dt(fired), rule.id),
@@ -254,6 +253,71 @@ class SchedulerStore:
             self.conn.execute(
                 "update rules set enabled = 0, updated_at = ? where id = ?",
                 (format_dt(fired), rule.id),
+            )
+        self.conn.commit()
+        return event
+
+    def emit_due_rule(
+        self,
+        rule: Rule,
+        *,
+        observed_at: datetime | None = None,
+        missed_grace_seconds: int = MISSED_GRACE_SECONDS,
+    ) -> dict:
+        observed = observed_at or utc_now()
+        missed_by = int((observed - rule.next_fire_at).total_seconds())
+        if missed_by > missed_grace_seconds:
+            return self.miss_rule(rule, detected_at=observed, missed_by_seconds=missed_by)
+        return self.fire_rule(rule, fired_at=observed)
+
+    def miss_rule(
+        self,
+        rule: Rule,
+        *,
+        detected_at: datetime | None = None,
+        missed_by_seconds: int | None = None,
+    ) -> dict:
+        detected = detected_at or utc_now()
+        missed_by = missed_by_seconds
+        if missed_by is None:
+            missed_by = int((detected - rule.next_fire_at).total_seconds())
+        run_id = "run_" + uuid.uuid4().hex[:12]
+        event = {
+            "type": "scheduler.missed",
+            "rule_id": rule.id,
+            "title": rule.title,
+            "scheduled_for": format_dt(rule.next_fire_at),
+            "detected_at": format_dt(detected),
+            "missed_by_seconds": missed_by,
+            "payload": rule.payload,
+        }
+        if rule.namespace is not None:
+            event["namespace"] = rule.namespace
+        if rule.target is not None:
+            event["target"] = rule.target
+        self.conn.execute(
+            """
+            insert into runs (id, rule_id, scheduled_for, fired_at, status, event_json)
+            values (?, ?, ?, ?, 'missed', ?)
+            """,
+            (
+                run_id,
+                rule.id,
+                format_dt(rule.next_fire_at),
+                format_dt(detected),
+                json.dumps(event, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        if rule.schedule_kind == "interval" and rule.interval_seconds:
+            next_fire = _next_future_fire(rule, after=detected)
+            self.conn.execute(
+                "update rules set next_fire_at = ?, updated_at = ? where id = ?",
+                (format_dt(next_fire), format_dt(detected), rule.id),
+            )
+        else:
+            self.conn.execute(
+                "update rules set enabled = 0, updated_at = ? where id = ?",
+                (format_dt(detected), rule.id),
             )
         self.conn.commit()
         return event
@@ -301,3 +365,13 @@ def _normalize_optional_string(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _next_future_fire(rule: Rule, *, after: datetime) -> datetime:
+    if rule.interval_seconds is None:
+        raise ValueError("interval_seconds is required for recurring rules")
+    next_fire = rule.next_fire_at
+    interval = timedelta(seconds=rule.interval_seconds)
+    while next_fire <= after:
+        next_fire = next_fire + interval
+    return next_fire
