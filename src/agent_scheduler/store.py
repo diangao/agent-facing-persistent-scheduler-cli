@@ -129,6 +129,44 @@ class SchedulerStore:
         self.conn.commit()
         return self.get_rule(rule_id)
 
+    def update_rule(
+        self,
+        rule_id: str,
+        *,
+        title: str | None = None,
+        next_fire_at: datetime | None = None,
+        payload: dict | None = None,
+        interval: str | None = None,
+    ) -> Rule:
+        self.get_rule(rule_id)
+        fields: list[str] = []
+        params: list[object] = []
+        if title is not None:
+            fields.append("title = ?")
+            params.append(title)
+        if next_fire_at is not None:
+            fields.append("next_fire_at = ?")
+            params.append(format_dt(next_fire_at))
+            fields.append("enabled = 1")
+        if payload is not None:
+            fields.append("payload_json = ?")
+            params.append(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        if interval is not None:
+            fields.append("schedule_kind = 'interval'")
+            fields.append("interval_seconds = ?")
+            params.append(int(parse_duration(interval).total_seconds()))
+        if not fields:
+            return self.get_rule(rule_id)
+        fields.append("updated_at = ?")
+        params.append(format_dt(utc_now()))
+        params.append(rule_id)
+        self.conn.execute(
+            f"update rules set {', '.join(fields)} where id = ?",
+            tuple(params),
+        )
+        self.conn.commit()
+        return self.get_rule(rule_id)
+
     def due_rules(self, *, now: datetime | None = None, limit: int | None = None) -> list[Rule]:
         cutoff = format_dt(now or utc_now())
         query = "select * from rules where enabled = 1 and next_fire_at <= ? order by next_fire_at asc"
