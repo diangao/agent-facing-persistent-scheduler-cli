@@ -93,12 +93,13 @@ All of these belong to the consuming adapter or host.
 
 ### Hardening notes for the core itself
 
-- **Run-log truthfulness.** The run log records each fire with status
-  `delivered`, but the core only *emits* the event — it cannot observe whether a
-  consumer delivered it. Recording `emitted` (or `fired`) keeps the core's audit
-  log from claiming an outcome it cannot verify.
-- **Make catch-up explicit.** Consider surfacing overdue rules as a distinct
-  `scheduler.missed` event rather than a silent catch-up burst, so consumers can
-  choose fire-as-now versus skip. This preserves the inert-core contract and
-  makes catch-up auditable.
+- **Run-log truthfulness.** The run log records each fire with status `emitted`
+  rather than `delivered` — the core can observe what it emitted on stdout but
+  cannot observe whether a consumer actually delivered the event. The audit log
+  reflects only what the core can verify.
+- **Make catch-up explicit.** Surface overdue rules as a distinct
+  `scheduler.missed` event rather than a silent catch-up burst, so consumers
+  can choose fire-as-now versus skip. This preserves the inert-core contract
+  and makes catch-up auditable. (Tracked in
+  [issue #1](https://github.com/diangao/agent-facing-persistent-scheduler-cli/issues/1).)
 

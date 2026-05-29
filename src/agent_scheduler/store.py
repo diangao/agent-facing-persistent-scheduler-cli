@@ -154,7 +154,7 @@ class SchedulerStore:
         self.conn.execute(
             """
             insert into runs (id, rule_id, scheduled_for, fired_at, status, event_json)
-            values (?, ?, ?, ?, 'delivered', ?)
+            values (?, ?, ?, ?, 'emitted', ?)
             """,
             (
                 run_id,
