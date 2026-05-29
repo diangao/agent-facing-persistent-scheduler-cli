@@ -67,6 +67,12 @@ Run a polling daemon:
 agent-scheduler daemon --poll-interval 30 --output ndjson
 ```
 
+Snooze the next fire:
+
+```bash
+agent-scheduler snooze r_abc123 --for 10m
+```
+
 ## Event contract
 
 `run-due` and `daemon` emit one JSON object per due rule:
@@ -96,7 +102,7 @@ Implemented:
 - local SQLite store under `~/.agent-scheduler/scheduler.sqlite3`
 - one-shot rules via `--at` or `--in`
 - interval rules via `--every`
-- `create`, `list`, `show`, `update`, `cancel`, `log`, `run-due`, `fire-now`, `daemon`
+- `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
 - NDJSON fire events
 

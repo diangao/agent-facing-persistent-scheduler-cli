@@ -160,6 +160,79 @@ class SchedulerCliTest(unittest.TestCase):
             after = json.loads(out)
             self.assertEqual(after, before)
 
+    def test_snooze_one_shot_pushes_next_fire(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "snooze me",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"kind":"one-shot"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+
+            code, out = self.run_cli(db, "snooze", rule_id, "--until", "2099-05-29T21:00:00Z")
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["next_fire_at"], "2099-05-29T21:00:00Z")
+            self.assertTrue(rule["enabled"])
+
+    def test_snooze_recurring_only_changes_next_fire(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "recurring",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--every",
+                "10m",
+                "--payload",
+                '{"kind":"interval"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+
+            code, out = self.run_cli(db, "snooze", rule_id, "--until", "2099-05-29T20:05:00Z")
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["next_fire_at"], "2099-05-29T20:05:00Z")
+            self.assertEqual(rule["interval_seconds"], 600)
+
+            code, out = self.run_cli(db, "run-due", "--now", "2099-05-29T20:05:01Z")
+            self.assertEqual(code, 0)
+            self.assertEqual(len(out.splitlines()), 1)
+            code, out = self.run_cli(db, "show", rule_id)
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["next_fire_at"], "2099-05-29T20:15:00Z")
+
+    def test_snooze_past_time_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "past",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"kind":"past"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+
+            code, _out = self.run_cli(db, "snooze", rule_id, "--until", "2000-01-01T00:00:00Z")
+            self.assertEqual(code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

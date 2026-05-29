@@ -8,7 +8,7 @@ import sys
 import time
 
 from .store import DEFAULT_DB, Rule, SchedulerStore
-from .timeparse import format_dt, parse_datetime, parse_due_time
+from .timeparse import format_dt, parse_datetime, parse_due_time, utc_now
 
 
 def _json_arg(value: str) -> dict:
@@ -122,6 +122,16 @@ def cmd_update(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_snooze(args: argparse.Namespace) -> int:
+    store = _store(args)
+    try:
+        next_fire_at = parse_due_time(at=args.until, in_=args.for_, now=utc_now())
+        _print_json(_rule_to_dict(store.snooze_rule(args.rule_id, next_fire_at=next_fire_at)))
+        return 0
+    finally:
+        store.close()
+
+
 def _run_due_once(store: SchedulerStore, *, now: datetime | None, limit: int | None) -> int:
     emitted = 0
     for rule in store.due_rules(now=now, limit=limit):
@@ -215,6 +225,13 @@ def build_parser() -> argparse.ArgumentParser:
     payload_update.add_argument("--payload-file", help="read JSON object payload from file")
     payload_update.add_argument("--payload-stdin", action="store_true", help="read JSON object payload from stdin")
     update.set_defaults(func=cmd_update)
+
+    snooze = sub.add_parser("snooze", help="push the next fire time later")
+    snooze.add_argument("rule_id")
+    snooze_due = snooze.add_mutually_exclusive_group(required=True)
+    snooze_due.add_argument("--until", help="ISO datetime, e.g. 2026-05-29T20:00:00Z")
+    snooze_due.add_argument("--for", dest="for_", help="relative duration, e.g. 10m, 2h, 1d")
+    snooze.set_defaults(func=cmd_snooze)
 
     run_due = sub.add_parser("run-due", help="emit due scheduler.fire events as NDJSON")
     run_due.add_argument("--now", help="override current time, ISO datetime")

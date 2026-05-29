@@ -167,6 +167,18 @@ class SchedulerStore:
         self.conn.commit()
         return self.get_rule(rule_id)
 
+    def snooze_rule(self, rule_id: str, *, next_fire_at: datetime) -> Rule:
+        if next_fire_at <= utc_now():
+            raise ValueError("snooze target must be in the future")
+        self.get_rule(rule_id)
+        now = utc_now()
+        self.conn.execute(
+            "update rules set next_fire_at = ?, enabled = 1, updated_at = ? where id = ?",
+            (format_dt(next_fire_at), format_dt(now), rule_id),
+        )
+        self.conn.commit()
+        return self.get_rule(rule_id)
+
     def due_rules(self, *, now: datetime | None = None, limit: int | None = None) -> list[Rule]:
         cutoff = format_dt(now or utc_now())
         query = "select * from rules where enabled = 1 and next_fire_at <= ? order by next_fire_at asc"
