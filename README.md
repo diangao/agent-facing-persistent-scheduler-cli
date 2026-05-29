@@ -1,11 +1,12 @@
 # agent-facing persistent scheduler CLI
 
-A small local-first scheduler substrate for agents.
+A durable time signal for agents. Local-first. The core emits due events; an
+adapter decides what to do.
 
-It is not an agent framework and not a cron replacement with a different syntax.
-It gives agents durable schedule objects, lifecycle commands, run logs, and
-runtime-friendly fire events that another bridge can deliver to an agent
-runtime.
+It is not an agent framework and not a cron replacement with a different
+syntax. It gives agents durable schedule objects, lifecycle commands, run
+logs, and inert due events. The payload is information for the runtime;
+action delivery is an adapter concern.
 
 ## Why
 
@@ -13,7 +14,7 @@ Agents need time as an inspectable object:
 
 - `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`
 - durable local state instead of hidden process memory
-- auditable fire history
+- auditable history of when each rule emitted an event
 - due events that can be routed into any runtime adapter
 
 ## Install for development
@@ -68,7 +69,7 @@ agent-scheduler daemon --poll-interval 30 --output ndjson
 
 ## Event contract
 
-`run-due` and `daemon` emit one JSON object per fired rule:
+`run-due` and `daemon` emit one JSON object per due rule:
 
 ```json
 {
@@ -106,5 +107,6 @@ Not yet implemented:
 - remote sync
 - adapter policy gates and delivery-specific rate limits
 
-Policy belongs in the host application. The scheduler core only creates durable
-time objects and emits inert fire events.
+Policy belongs in the host application. The scheduler core only creates
+durable time objects and emits inert events. The payload is information for
+the runtime; actions belong to the adapter.
