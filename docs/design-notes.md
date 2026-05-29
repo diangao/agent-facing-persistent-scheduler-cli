@@ -20,6 +20,26 @@ Two consequences follow directly:
 If a future change would move action delivery, auth, rate limiting, or runtime
 injection into the core, it should be rejected by reference to this invariant.
 
+## Thickness spectrum
+
+Scheduler designs in this space sit on a spectrum of how much the host does
+before the agent sees anything. From thinnest to thickest:
+
+1. **event-only stdout** — a due event is emitted as a line of structured
+   text. No injection, no routing, no environment. The consumer reads it and
+   decides.
+2. **inject into session** — a due event is injected into a specific running
+   agent session as a synthetic user turn. The host already chose the session.
+3. **create thread/workspace run** — a due event opens or reuses a thread or
+   workspace, sets up environment (cwd, tools, permissions), and starts a
+   turn.
+4. **execute external action** — a due event runs a shell command, calls a
+   webhook, or otherwise performs an action against a real system.
+
+This project sits at position 1. Everything to the right of position 1 is an
+adapter concern. The further right a system sits, the more its rule-creation
+surface becomes an execution surface.
+
 ## Prior art
 
 Two families of publicly-discussable existing systems informed this design.
