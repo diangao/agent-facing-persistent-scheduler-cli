@@ -18,6 +18,8 @@ DEFAULT_DB = DEFAULT_HOME / "scheduler.sqlite3"
 class Rule:
     id: str
     title: str
+    namespace: str | None
+    target: str | None
     schedule_kind: str
     next_fire_at: datetime
     payload: dict
@@ -44,6 +46,8 @@ class SchedulerStore:
             create table if not exists rules (
               id text primary key,
               title text not null,
+              namespace text,
+              target text,
               schedule_kind text not null,
               next_fire_at text not null,
               payload_json text not null,
@@ -65,7 +69,15 @@ class SchedulerStore:
             );
             """
         )
+        self._ensure_rule_metadata_columns()
         self.conn.commit()
+
+    def _ensure_rule_metadata_columns(self) -> None:
+        existing = {row["name"] for row in self.conn.execute("pragma table_info(rules)")}
+        if "namespace" not in existing:
+            self.conn.execute("alter table rules add column namespace text")
+        if "target" not in existing:
+            self.conn.execute("alter table rules add column target text")
 
     def create_rule(
         self,
@@ -74,6 +86,8 @@ class SchedulerStore:
         next_fire_at: datetime,
         payload: dict,
         interval: str | None = None,
+        namespace: str | None = None,
+        target: str | None = None,
     ) -> Rule:
         now = utc_now()
         rule_id = "r_" + uuid.uuid4().hex[:12]
@@ -85,13 +99,15 @@ class SchedulerStore:
         self.conn.execute(
             """
             insert into rules (
-              id, title, schedule_kind, next_fire_at, payload_json, enabled,
+              id, title, namespace, target, schedule_kind, next_fire_at, payload_json, enabled,
               interval_seconds, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             """,
             (
                 rule_id,
                 title,
+                _normalize_optional_string(namespace),
+                _normalize_optional_string(target),
                 schedule_kind,
                 format_dt(next_fire_at),
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),
@@ -137,6 +153,8 @@ class SchedulerStore:
         next_fire_at: datetime | None = None,
         payload: dict | None = None,
         interval: str | None = None,
+        namespace: str | None = None,
+        target: str | None = None,
     ) -> Rule:
         self.get_rule(rule_id)
         fields: list[str] = []
@@ -155,6 +173,12 @@ class SchedulerStore:
             fields.append("schedule_kind = 'interval'")
             fields.append("interval_seconds = ?")
             params.append(int(parse_duration(interval).total_seconds()))
+        if namespace is not None:
+            fields.append("namespace = ?")
+            params.append(_normalize_optional_string(namespace))
+        if target is not None:
+            fields.append("target = ?")
+            params.append(_normalize_optional_string(target))
         if not fields:
             return self.get_rule(rule_id)
         fields.append("updated_at = ?")
@@ -201,6 +225,10 @@ class SchedulerStore:
             "fired_at": format_dt(fired),
             "payload": rule.payload,
         }
+        if rule.namespace is not None:
+            event["namespace"] = rule.namespace
+        if rule.target is not None:
+            event["target"] = rule.target
         self.conn.execute(
             """
             insert into runs (id, rule_id, scheduled_for, fired_at, status, event_json)
@@ -256,6 +284,8 @@ class SchedulerStore:
         return Rule(
             id=row["id"],
             title=row["title"],
+            namespace=row["namespace"],
+            target=row["target"],
             schedule_kind=row["schedule_kind"],
             next_fire_at=parse_datetime(row["next_fire_at"]),
             payload=json.loads(row["payload_json"]),
@@ -264,3 +294,10 @@ class SchedulerStore:
             created_at=parse_datetime(row["created_at"]),
             updated_at=parse_datetime(row["updated_at"]),
         )
+
+
+def _normalize_optional_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
