@@ -22,14 +22,9 @@ injection into the core, it should be rejected by reference to this invariant.
 
 ## Prior art
 
-Three families of existing systems informed this design. None of them is a
-direct dependency.
+Two families of publicly-discussable existing systems informed this design.
+Neither is a direct dependency.
 
-- **Reminder objects in collaboration runtimes.** Persistent reminder records
-  with full lifecycle commands, anchored wakeups, and visible fire / log
-  semantics. These are the closest reference for what an agent-facing
-  scheduler should look like from the user's side: an inspectable object, not a
-  hidden timer.
 - **Feature-gated cron-style scheduler tools inside agent IDEs.** Useful design
   ideas, not a public dependency. Notable concepts: feature-gated tool
   registration, a session-only vs. durable storage split, missed one-shot
