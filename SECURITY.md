@@ -87,9 +87,36 @@ guarantees they inherit and which they must add.
 - validate, sanitize, or schema-check payloads;
 - rate-limit or cap fires or deliveries;
 - verify that a delivery actually happened;
-- protect the store file (an OS responsibility).
+- protect the store file (an OS responsibility);
+- provide cross-agent isolation via routing metadata.
 
 All of these belong to the consuming adapter or host.
+
+### Routing metadata is not isolation
+
+A rule may carry optional opaque labels such as `namespace` and `target` (or
+`route_key`) so that, on a shared store with multiple subscribers, each
+adapter can self-select which fire events it acts on. The core neither
+parses these labels nor enforces them. They are routing hints, not access
+controls.
+
+Specifically:
+
+- **They isolate DELIVERY, not DATA.** When an adapter rejects fire events
+  that do not match its declared labels (adapter-conformance #3), one
+  subscriber will not act on another subscriber's fires.
+- **They do NOT isolate read or write access to the store.** Anything that
+  can read the SQLite file can read every rule, payload, and run-log entry
+  regardless of label. Anything that can write the SQLite file can create a
+  rule under any label (the field is opaque, not authenticated).
+- **The real cross-agent boundary is the store.** Mutually-trusting agents
+  (same user, same trust domain) can share a store and use `namespace` /
+  `target` for routing ergonomics. Agents that must not read or forge each
+  other's rules need separate stores, configured via `--db`.
+
+Naming reflects this: the labels are called `namespace` / `target` /
+`route_key`, not `tenant` or `owner`. Those terms would imply isolation the
+core does not provide.
 
 ### Hardening notes for the core itself
 
