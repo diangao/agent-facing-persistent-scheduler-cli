@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-facing-persistent-scheduler-cli"
+version = "0.1.0"
+description = "A local-first persistent scheduler CLI for agent runtimes."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Diyan Gao" }]
+keywords = ["agents", "scheduler", "cli", "cron", "automation"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: System :: Scheduling",
+]
+dependencies = []
+
+[project.scripts]
+agent-scheduler = "agent_scheduler.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
