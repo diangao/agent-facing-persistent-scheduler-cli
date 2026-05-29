@@ -132,6 +132,14 @@ That is enough. Anything more is friction; multiple-hop reasoning,
 role-reflection passes, and meta-instruction parsing all cost latency and
 correctness without buying alignment.
 
+Recurrence metadata is a scheduler concern, not a fired-turn concern. A
+recurring rule's fire event MUST be identical in shape to a one-shot
+rule's fire event: the runtime sees a due reminder, not "this is the Nth
+occurrence" or "next iteration at X". `every`, `next_fire_at`, and run
+counts live in the scheduler and the audit log; the runtime can fetch
+them via `agent-scheduler show <rule_id>` or `log <rule_id>` if it
+explicitly needs them.
+
 ## Official adapter system-prompt-append template
 
 This template is what an official adapter SHOULD append to its target
@@ -161,6 +169,7 @@ Available commands:
 
 - `agent-scheduler create --at <ISO time> --payload '<JSON object>'`
 - `agent-scheduler create --in <duration like 10m / 2h / 1d> --payload '<JSON object>'`
+- `agent-scheduler create --every <duration like 1h / 1d / 1w> --payload '<JSON object>'` (recurring)
 - `agent-scheduler list / show <rule_id> / update <rule_id> / snooze <rule_id> / cancel <rule_id> / log <rule_id>`
 
 When creating a rule, put the future user-facing reminder or action in the
@@ -200,6 +209,7 @@ so the outer daemon routes the fire back to this runtime:
 
 - `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --at <ISO time> --payload '<JSON object>'`
 - `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --in <duration> --payload '<JSON object>'`
+- `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --every <duration> --payload '<JSON object>'` (recurring)
 - `agent-scheduler list / show / update / snooze / cancel / log`
 
 Namespace and target are opaque routing labels. They do not authenticate
