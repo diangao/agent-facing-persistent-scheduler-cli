@@ -60,6 +60,12 @@ Run a polling daemon:
 agent-scheduler daemon --poll-interval 30 --output ndjson
 ```
 
+Snooze the next fire:
+
+```bash
+agent-scheduler snooze r_abc123 --for 10m
+```
+
 ## Event contract
 
 `run-due` and `daemon` emit one JSON object per fired rule:
@@ -92,6 +98,7 @@ Implemented:
 - `create`, `list`, `show`, `cancel`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
 - NDJSON fire events
+- `snooze` lifecycle command for pushing only the next fire
 
 Not yet implemented:
 
