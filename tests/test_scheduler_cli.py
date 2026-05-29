@@ -101,6 +101,110 @@ class SchedulerCliTest(unittest.TestCase):
             self.assertEqual(event["type"], "scheduler.fire")
             self.assertEqual(event["rule_id"], rule_id)
 
+    def test_due_inside_grace_window_fires_not_missed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, _out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "slightly late",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"text":"still fire"}',
+            )
+            self.assertEqual(code, 0)
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-29T20:00:30Z")
+            self.assertEqual(code, 0)
+            event = json.loads(out)
+            self.assertEqual(event["type"], "scheduler.fire")
+            self.assertNotIn("missed_by_seconds", event)
+
+    def test_missed_one_shot_emits_missed_and_disables_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "missed one-shot",
+                "--namespace",
+                "agent-runtime",
+                "--target",
+                "session:main",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"text":"missed"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-29T20:02:00Z")
+            self.assertEqual(code, 0)
+            event = json.loads(out)
+            self.assertEqual(event["type"], "scheduler.missed")
+            self.assertEqual(event["rule_id"], rule_id)
+            self.assertEqual(event["scheduled_for"], "2026-05-29T20:00:00Z")
+            self.assertEqual(event["detected_at"], "2026-05-29T20:02:00Z")
+            self.assertEqual(event["missed_by_seconds"], 120)
+            self.assertEqual(event["namespace"], "agent-runtime")
+            self.assertEqual(event["target"], "session:main")
+            self.assertNotIn("fired_at", event)
+
+            code, out = self.run_cli(db, "show", rule_id)
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertFalse(rule["enabled"])
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-29T20:02:01Z")
+            self.assertEqual(code, 0)
+            self.assertEqual(out, "")
+
+            code, out = self.run_cli(db, "log", rule_id)
+            self.assertEqual(code, 0)
+            logs = json.loads(out)
+            self.assertEqual(logs[0]["status"], "missed")
+            self.assertEqual(logs[0]["event"]["type"], "scheduler.missed")
+
+    def test_missed_interval_emits_once_and_advances_to_future_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "missed interval",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--every",
+                "10m",
+                "--payload",
+                '{"text":"missed interval"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-30T04:20:01Z")
+            self.assertEqual(code, 0)
+            events = [json.loads(line) for line in out.splitlines()]
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["type"], "scheduler.missed")
+            self.assertEqual(events[0]["rule_id"], rule_id)
+            self.assertEqual(events[0]["missed_by_seconds"], 30001)
+
+            code, out = self.run_cli(db, "show", rule_id)
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertTrue(rule["enabled"])
+            self.assertEqual(rule["next_fire_at"], "2026-05-30T04:30:00Z")
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-30T04:20:02Z")
+            self.assertEqual(code, 0)
+            self.assertEqual(out, "")
+
     def test_update_keeps_rule_id_and_run_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "scheduler.sqlite3"

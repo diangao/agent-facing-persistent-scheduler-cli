@@ -141,7 +141,7 @@ def cmd_snooze(args: argparse.Namespace) -> int:
 def _run_due_once(store: SchedulerStore, *, now: datetime | None, limit: int | None) -> int:
     emitted = 0
     for rule in store.due_rules(now=now, limit=limit):
-        _print_json(store.fire_rule(rule, fired_at=now))
+        _print_json(store.emit_due_rule(rule, observed_at=now))
         emitted += 1
     return emitted
 
@@ -243,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     snooze_due.add_argument("--for", dest="for_", help="relative duration, e.g. 10m, 2h, 1d")
     snooze.set_defaults(func=cmd_snooze)
 
-    run_due = sub.add_parser("run-due", help="emit due scheduler.fire events as NDJSON")
+    run_due = sub.add_parser("run-due", help="emit due scheduler.fire or scheduler.missed events as NDJSON")
     run_due.add_argument("--now", help="override current time, ISO datetime")
     run_due.add_argument("--limit", type=int, help="maximum due rules to fire")
     run_due.add_argument("--output", choices=["ndjson"], default="ndjson")
