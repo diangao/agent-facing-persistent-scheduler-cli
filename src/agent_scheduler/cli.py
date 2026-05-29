@@ -39,6 +39,8 @@ def _rule_to_dict(rule: Rule) -> dict:
     return {
         "id": rule.id,
         "title": rule.title,
+        "namespace": rule.namespace,
+        "target": rule.target,
         "schedule_kind": rule.schedule_kind,
         "next_fire_at": format_dt(rule.next_fire_at),
         "enabled": rule.enabled,
@@ -66,6 +68,8 @@ def cmd_create(args: argparse.Namespace) -> int:
             next_fire_at=next_fire_at,
             payload=_load_payload(args),
             interval=args.every,
+            namespace=args.namespace,
+            target=args.target,
         )
         _print_json(_rule_to_dict(rule))
         return 0
@@ -115,6 +119,8 @@ def cmd_update(args: argparse.Namespace) -> int:
             next_fire_at=next_fire_at,
             payload=payload,
             interval=args.every,
+            namespace=args.namespace,
+            target=args.target,
         )
         _print_json(_rule_to_dict(rule))
         return 0
@@ -191,6 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     create = sub.add_parser("create", help="create a schedule rule")
     create.add_argument("--title", required=True)
+    create.add_argument("--namespace", help="advanced: opaque adapter/runtime namespace")
+    create.add_argument("--target", help="advanced: opaque adapter-specific route key")
     due = create.add_mutually_exclusive_group(required=True)
     due.add_argument("--at", help="ISO datetime, e.g. 2026-05-29T20:00:00Z")
     due.add_argument("--in", dest="in_", help="relative duration, e.g. 10m, 2h, 1d")
@@ -216,6 +224,8 @@ def build_parser() -> argparse.ArgumentParser:
     update = sub.add_parser("update", help="update one rule without changing its id")
     update.add_argument("rule_id")
     update.add_argument("--title")
+    update.add_argument("--namespace", help="advanced: opaque adapter/runtime namespace; pass empty string to clear")
+    update.add_argument("--target", help="advanced: opaque adapter-specific route key; pass empty string to clear")
     due_update = update.add_mutually_exclusive_group()
     due_update.add_argument("--at", help="ISO datetime, e.g. 2026-05-29T20:00:00Z")
     due_update.add_argument("--in", dest="in_", help="relative duration, e.g. 10m, 2h, 1d")

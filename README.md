@@ -95,6 +95,26 @@ agent-scheduler snooze r_abc123 --for 10m
 Adapters are intentionally outside the core CLI. A host bridge can read this
 event and decide how to deliver it.
 
+## Advanced routing metadata
+
+For multiple adapters sharing one local scheduler store, rules can carry
+optional opaque routing labels:
+
+```bash
+agent-scheduler create \
+  --title "check the draft" \
+  --namespace "claude-code" \
+  --target "session:main" \
+  --in 10m \
+  --payload '{"type":"agent.reminder","text":"Check the draft."}'
+```
+
+`namespace` and `target` are opaque routing labels. The core stores and emits
+them, but never interprets them. Adapters can use them to decide whether an
+event belongs to a specific runtime, agent, or session. They are not auth,
+ownership, or data-isolation fields; use a separate `--db` for a separate trust
+boundary.
+
 ## Current scope
 
 Implemented:
@@ -104,6 +124,7 @@ Implemented:
 - interval rules via `--every`
 - `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
+- optional opaque `--namespace` and `--target` routing metadata
 - NDJSON fire events
 
 Not yet implemented:

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import io
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -34,6 +35,8 @@ class SchedulerCliTest(unittest.TestCase):
             self.assertEqual(code, 0)
             rule = json.loads(out)
             self.assertTrue(rule["id"].startswith("r_"))
+            self.assertIsNone(rule["namespace"])
+            self.assertIsNone(rule["target"])
 
             code, out = self.run_cli(db, "run-due", "--now", "2026-05-29T20:00:01Z")
             self.assertEqual(code, 0)
@@ -41,6 +44,8 @@ class SchedulerCliTest(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["type"], "scheduler.fire")
             self.assertEqual(events[0]["payload"], {"text": "check draft"})
+            self.assertNotIn("namespace", events[0])
+            self.assertNotIn("target", events[0])
 
             code, out = self.run_cli(db, "run-due", "--now", "2026-05-29T20:00:02Z")
             self.assertEqual(code, 0)
@@ -138,6 +143,120 @@ class SchedulerCliTest(unittest.TestCase):
             code, out = self.run_cli(db, "log", rule_id)
             self.assertEqual(code, 0)
             self.assertEqual(len(json.loads(out)), 1)
+
+    def test_routing_metadata_round_trips_to_fire_event_and_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "routed",
+                "--namespace",
+                "claude-code",
+                "--target",
+                "session:main",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"text":"route me"}',
+            )
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            rule_id = rule["id"]
+            self.assertEqual(rule["namespace"], "claude-code")
+            self.assertEqual(rule["target"], "session:main")
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-29T20:00:01Z")
+            self.assertEqual(code, 0)
+            event = json.loads(out)
+            self.assertEqual(event["type"], "scheduler.fire")
+            self.assertEqual(event["namespace"], "claude-code")
+            self.assertEqual(event["target"], "session:main")
+
+            code, out = self.run_cli(db, "log", rule_id)
+            self.assertEqual(code, 0)
+            logs = json.loads(out)
+            self.assertEqual(logs[0]["event"]["namespace"], "claude-code")
+            self.assertEqual(logs[0]["event"]["target"], "session:main")
+
+    def test_update_can_set_and_clear_routing_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "routing",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"text":"routing"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+
+            code, out = self.run_cli(
+                db,
+                "update",
+                rule_id,
+                "--namespace",
+                "codex",
+                "--target",
+                "repo:demo",
+            )
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["namespace"], "codex")
+            self.assertEqual(rule["target"], "repo:demo")
+
+            code, out = self.run_cli(db, "update", rule_id, "--namespace", "", "--target", "")
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertIsNone(rule["namespace"])
+            self.assertIsNone(rule["target"])
+
+    def test_existing_store_without_routing_columns_is_migrated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                create table rules (
+                  id text primary key,
+                  title text not null,
+                  schedule_kind text not null,
+                  next_fire_at text not null,
+                  payload_json text not null,
+                  enabled integer not null default 1,
+                  interval_seconds integer,
+                  created_at text not null,
+                  updated_at text not null
+                );
+                insert into rules (
+                  id, title, schedule_kind, next_fire_at, payload_json,
+                  enabled, interval_seconds, created_at, updated_at
+                ) values (
+                  'r_old', 'old rule', 'one-shot', '2026-05-29T20:00:00Z',
+                  '{"text":"old"}', 1, null,
+                  '2026-05-29T19:00:00Z', '2026-05-29T19:00:00Z'
+                );
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            code, out = self.run_cli(db, "show", "r_old")
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertIsNone(rule["namespace"])
+            self.assertIsNone(rule["target"])
+
+            code, out = self.run_cli(db, "update", "r_old", "--namespace", "legacy", "--target", "session:old")
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["namespace"], "legacy")
+            self.assertEqual(rule["target"], "session:old")
 
     def test_update_noop_returns_existing_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

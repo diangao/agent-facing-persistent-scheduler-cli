@@ -93,6 +93,11 @@ binding to any particular host runtime.
 The core emits one JSON object per event line on stdout. There is no other
 delivery target in the core.
 
+Rules may include optional `namespace` and `target` labels. The core treats
+them as opaque strings: it stores them, emits them, and never interprets them.
+Adapters can use them for routing, but they are not an authorization or data
+isolation mechanism. See `SECURITY.md` for the trust-boundary details.
+
 ### `scheduler.fire`
 
 Emitted when a rule fires.
@@ -103,6 +108,8 @@ Emitted when a rule fires.
   "rule_id": "r_...",
   "run_id": "run_...",
   "title": "check the draft",
+  "namespace": "agent-runtime",
+  "target": "session:main",
   "scheduled_for": "2026-05-29T20:42:00Z",
   "fired_at": "2026-05-29T20:42:01Z",
   "payload": { "type": "agent.reminder", "text": "Check the draft." }
@@ -120,6 +127,8 @@ consumer reads the miss and decides.
   "type": "scheduler.missed",
   "rule_id": "r_...",
   "title": "check the draft",
+  "namespace": "agent-runtime",
+  "target": "session:main",
   "scheduled_for": "2026-05-29T16:00:00Z",
   "detected_at": "2026-05-29T20:42:01Z",
   "missed_by_seconds": 17041,

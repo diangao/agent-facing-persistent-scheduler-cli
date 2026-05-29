@@ -20,6 +20,18 @@ import json
 import sys
 
 
+def route_label(event: dict) -> str:
+    namespace = event.get("namespace")
+    target = event.get("target")
+    if namespace and target:
+        return f" namespace={namespace!r} target={target!r}"
+    if namespace:
+        return f" namespace={namespace!r}"
+    if target:
+        return f" target={target!r}"
+    return ""
+
+
 def handle_fire(event: dict) -> None:
     """A real consumer would deliver the fire to its agent runtime here.
 
@@ -35,7 +47,8 @@ def handle_fire(event: dict) -> None:
     delivery state belongs to you.
     """
     print(
-        f"[fire] rule={event['rule_id']} title={event.get('title')!r} "
+        f"[fire] rule={event['rule_id']}{route_label(event)} "
+        f"title={event.get('title')!r} "
         f"scheduled_for={event['scheduled_for']} payload={event.get('payload')!r}"
     )
 
@@ -50,7 +63,8 @@ def handle_missed(event: dict) -> None:
       - ask a user before deciding (useful for one-shot reminders).
     """
     print(
-        f"[missed] rule={event['rule_id']} scheduled_for={event['scheduled_for']} "
+        f"[missed] rule={event['rule_id']}{route_label(event)} "
+        f"scheduled_for={event['scheduled_for']} "
         f"missed_by={event['missed_by_seconds']}s"
     )
 
