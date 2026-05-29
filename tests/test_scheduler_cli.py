@@ -96,6 +96,70 @@ class SchedulerCliTest(unittest.TestCase):
             self.assertEqual(event["type"], "scheduler.fire")
             self.assertEqual(event["rule_id"], rule_id)
 
+    def test_update_keeps_rule_id_and_run_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "old",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"text":"old"}',
+            )
+            self.assertEqual(code, 0)
+            rule_id = json.loads(out)["id"]
+            self.run_cli(db, "fire-now", rule_id)
+
+            code, out = self.run_cli(
+                db,
+                "update",
+                rule_id,
+                "--title",
+                "new",
+                "--at",
+                "2026-05-30T20:00:00Z",
+                "--every",
+                "30m",
+                "--payload",
+                '{"text":"new"}',
+            )
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["id"], rule_id)
+            self.assertEqual(rule["title"], "new")
+            self.assertEqual(rule["schedule_kind"], "interval")
+            self.assertEqual(rule["interval_seconds"], 1800)
+            self.assertEqual(rule["next_fire_at"], "2026-05-30T20:00:00Z")
+            self.assertEqual(rule["payload"], {"text": "new"})
+
+            code, out = self.run_cli(db, "log", rule_id)
+            self.assertEqual(code, 0)
+            self.assertEqual(len(json.loads(out)), 1)
+
+    def test_update_noop_returns_existing_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            code, out = self.run_cli(
+                db,
+                "create",
+                "--title",
+                "unchanged",
+                "--at",
+                "2026-05-29T20:00:00Z",
+                "--payload",
+                '{"text":"same"}',
+            )
+            self.assertEqual(code, 0)
+            before = json.loads(out)
+
+            code, out = self.run_cli(db, "update", before["id"])
+            self.assertEqual(code, 0)
+            after = json.loads(out)
+            self.assertEqual(after, before)
+
 
 if __name__ == "__main__":
     unittest.main()
