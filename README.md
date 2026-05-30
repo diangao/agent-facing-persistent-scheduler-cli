@@ -76,9 +76,9 @@ agent-scheduler snooze r_abc123 --for 10m
 ## Random daytime signals
 
 Adapters that want proactive daytime check-ins can create a durable
-random-daytime rule. The runtime chooses the count and payload; the scheduler
-samples the next fire time inside the window and persists that sampled time so
-restart does not resample it.
+random-daytime rule. The runtime chooses the count or count range and payload;
+the scheduler samples the next fire time inside the window and persists that
+sampled time so restart does not resample it.
 
 ```bash
 agent-scheduler create \
@@ -86,14 +86,16 @@ agent-scheduler create \
   --random-daytime \
   --window 09:00-22:30 \
   --timezone America/Los_Angeles \
-  --count 2 \
+  --count-range 2-3 \
   --payload '{"type":"agent.check_in","text":"Consider a lightweight check-in."}'
 ```
 
 When a random-daytime rule fires, it emits the same `scheduler.fire` event as
-other rules, then samples and persists the next future daytime slot. Missed
-random-daytime rules emit one `scheduler.missed` event and resample a future
-slot; they do not burst-fire skipped slots after downtime.
+other rules, then samples and persists the next future daytime slot. `--count N`
+is equivalent to `--count-range N-N`; a count range samples that local day's N
+at daily rollover and stores it in the rule state. Missed random-daytime rules
+emit one `scheduler.missed` event and resample a future slot; they do not
+burst-fire skipped slots after downtime.
 
 ## Event contract
 
@@ -167,7 +169,7 @@ Implemented:
 - local SQLite store under `~/.agent-scheduler/scheduler.sqlite3`
 - one-shot rules via `--at` or `--in`
 - interval rules via `--every`
-- random daytime rules via `--random-daytime --window HH:MM-HH:MM --timezone ... --count N`
+- random daytime rules via `--random-daytime --window HH:MM-HH:MM --timezone ... --count N` or `--count-range MIN-MAX`
 - `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
 - optional opaque `--namespace` and `--target` routing metadata

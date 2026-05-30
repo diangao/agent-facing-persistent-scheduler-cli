@@ -134,12 +134,15 @@ class SchedulerStore:
         payload: dict,
         window: str,
         timezone: str,
-        count_per_day: int,
+        count_per_day: int = 1,
+        count_range: str | None = None,
         namespace: str | None = None,
         target: str | None = None,
     ) -> Rule:
-        if count_per_day <= 0:
-            raise ValueError("count_per_day must be positive")
+        count_min, count_max = _resolve_count_bounds(
+            count_per_day=count_per_day,
+            count_range=count_range,
+        )
         window_start, window_end = _parse_window(window)
         tz = _load_timezone(timezone)
         now = utc_now()
@@ -148,7 +151,8 @@ class SchedulerStore:
             window_end=window_end,
             tz=tz,
             timezone=timezone,
-            count_per_day=count_per_day,
+            count_min=count_min,
+            count_max=count_max,
             after=now,
         )
         rule_id = "r_" + uuid.uuid4().hex[:12]
@@ -500,6 +504,28 @@ def _parse_window(value: str) -> tuple[time, time]:
     return start, end
 
 
+def _resolve_count_bounds(*, count_per_day: int, count_range: str | None) -> tuple[int, int]:
+    if count_range is None:
+        if count_per_day <= 0:
+            raise ValueError("count_per_day must be positive")
+        return count_per_day, count_per_day
+
+    raw = count_range.strip()
+    if "-" not in raw:
+        raise ValueError("count_range must look like MIN-MAX")
+    min_raw, max_raw = raw.split("-", 1)
+    try:
+        count_min = int(min_raw.strip())
+        count_max = int(max_raw.strip())
+    except ValueError as exc:
+        raise ValueError("count_range must look like MIN-MAX") from exc
+    if count_min <= 0 or count_max <= 0:
+        raise ValueError("count_range values must be positive")
+    if count_min > count_max:
+        raise ValueError("count_range minimum must be <= maximum")
+    return count_min, count_max
+
+
 def _window_bounds(day: date, *, start: time, end: time, tz: ZoneInfo) -> tuple[datetime, datetime]:
     return (
         datetime.combine(day, start, tzinfo=tz),
@@ -522,7 +548,8 @@ def _first_random_daytime_fire(
     window_end: time,
     tz: ZoneInfo,
     timezone: str,
-    count_per_day: int,
+    count_min: int,
+    count_max: int,
     after: datetime,
 ) -> tuple[datetime, dict]:
     local_after = after.astimezone(tz)
@@ -531,10 +558,13 @@ def _first_random_daytime_fire(
         start, end = _window_bounds(day, start=window_start, end=window_end, tz=tz)
         lower = max(local_after, start) if offset == 0 else start
         if lower < end:
+            count_per_day = random.randint(count_min, count_max)
             config = {
                 "window_start": window_start.strftime("%H:%M"),
                 "window_end": window_end.strftime("%H:%M"),
                 "timezone": timezone,
+                "count_min": count_min,
+                "count_max": count_max,
                 "count_per_day": count_per_day,
                 "period_date": day.isoformat(),
                 "fire_index": 0,
@@ -550,6 +580,8 @@ def _next_random_daytime_fire(rule: Rule, *, after: datetime) -> tuple[datetime,
     timezone = str(config["timezone"])
     tz = _load_timezone(timezone)
     count_per_day = int(config["count_per_day"])
+    count_min = int(config.get("count_min", count_per_day))
+    count_max = int(config.get("count_max", count_per_day))
     fire_index = int(config.get("fire_index", 0))
     period_date = date.fromisoformat(str(config["period_date"]))
     local_after = after.astimezone(tz)
@@ -573,6 +605,7 @@ def _next_random_daytime_fire(rule: Rule, *, after: datetime) -> tuple[datetime,
         window_end=window_end,
         tz=tz,
         timezone=timezone,
-        count_per_day=count_per_day,
+        count_min=count_min,
+        count_max=count_max,
         after=datetime.combine(next_day, time(0, 0), tzinfo=tz),
     )

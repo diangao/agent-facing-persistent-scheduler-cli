@@ -72,7 +72,8 @@ def cmd_create(args: argparse.Namespace) -> int:
                 payload=payload,
                 window=args.window,
                 timezone=args.timezone,
-                count_per_day=args.count,
+                count_per_day=args.count if args.count is not None else 1,
+                count_range=args.count_range,
                 namespace=args.namespace,
                 target=args.target,
             )
@@ -220,7 +221,9 @@ def build_parser() -> argparse.ArgumentParser:
     due.add_argument("--random-daytime", action="store_true", help="sample durable fires inside a daytime window")
     create.add_argument("--window", default="09:00-22:30", help="random daytime local window, HH:MM-HH:MM")
     create.add_argument("--timezone", default="UTC", help="IANA timezone for --random-daytime")
-    create.add_argument("--count", type=int, default=1, help="fires per day for --random-daytime")
+    random_count = create.add_mutually_exclusive_group()
+    random_count.add_argument("--count", type=int, help="fixed fires per day for --random-daytime")
+    random_count.add_argument("--count-range", help="fires per day range for --random-daytime, MIN-MAX")
     create.add_argument("--every", help="repeat interval, e.g. 30m, 1h, 1d")
     payload = create.add_mutually_exclusive_group(required=True)
     payload.add_argument("--payload", type=_json_arg, help="JSON object payload")
