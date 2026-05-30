@@ -77,8 +77,8 @@ agent-scheduler snooze r_abc123 --for 10m
 
 Adapters that want proactive daytime check-ins can create a durable
 random-daytime rule. The runtime chooses the count or count range and payload;
-the scheduler samples the next fire time inside the window and persists that
-sampled time so restart does not resample it.
+the scheduler samples that local day's fire times inside the window and persists
+the plan so restart does not resample it.
 
 ```bash
 agent-scheduler create \
@@ -91,10 +91,11 @@ agent-scheduler create \
 ```
 
 When a random-daytime rule fires, it emits the same `scheduler.fire` event as
-other rules, then samples and persists the next future daytime slot. `--count N`
-is equivalent to `--count-range N-N`; a count range samples that local day's N
-at daily rollover and stores it in the rule state. Missed random-daytime rules
-emit one `scheduler.missed` event and resample a future slot; they do not
+other rules, then advances to the next sampled daytime slot. `--count N` is
+equivalent to `--count-range N-N`; a count range samples that local day's N at
+daily rollover and stores the sorted fire-time plan in the rule state. Missed
+random-daytime rules emit one `scheduler.missed` event and advance to a future
+slot; they do not
 burst-fire skipped slots after downtime.
 
 ## Event contract

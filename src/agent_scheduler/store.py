@@ -533,13 +533,46 @@ def _window_bounds(day: date, *, start: time, end: time, tz: ZoneInfo) -> tuple[
     )
 
 
-def _sample_between(start: datetime, end: datetime) -> datetime:
+def _choose_count(count_min: int, count_max: int) -> int:
+    if count_min == count_max:
+        return count_min
+    return random.randint(count_min, count_max)
+
+
+def _sample_daytime_plan(start: datetime, end: datetime, *, count: int) -> list[datetime]:
     seconds = int((end - start).total_seconds())
     if seconds <= 0:
         raise ValueError("random daytime window has no future time to sample")
-    return (start + timedelta(seconds=random.randint(0, seconds))).astimezone(UTC).replace(
-        microsecond=0
-    )
+    if count > seconds + 1:
+        raise ValueError("random daytime count exceeds available seconds in the window")
+    offsets = sorted(random.sample(range(seconds + 1), count))
+    return [
+        (start + timedelta(seconds=offset)).astimezone(UTC).replace(microsecond=0)
+        for offset in offsets
+    ]
+
+
+def _new_random_daytime_config(
+    *,
+    window_start: time,
+    window_end: time,
+    timezone: str,
+    count_min: int,
+    count_max: int,
+    period_date: date,
+    fire_times: list[datetime],
+) -> dict:
+    return {
+        "window_start": window_start.strftime("%H:%M"),
+        "window_end": window_end.strftime("%H:%M"),
+        "timezone": timezone,
+        "count_min": count_min,
+        "count_max": count_max,
+        "count_per_day": len(fire_times),
+        "period_date": period_date.isoformat(),
+        "fire_index": 0,
+        "fire_times": [format_dt(fire_time) for fire_time in fire_times],
+    }
 
 
 def _first_random_daytime_fire(
@@ -558,18 +591,18 @@ def _first_random_daytime_fire(
         start, end = _window_bounds(day, start=window_start, end=window_end, tz=tz)
         lower = max(local_after, start) if offset == 0 else start
         if lower < end:
-            count_per_day = random.randint(count_min, count_max)
-            config = {
-                "window_start": window_start.strftime("%H:%M"),
-                "window_end": window_end.strftime("%H:%M"),
-                "timezone": timezone,
-                "count_min": count_min,
-                "count_max": count_max,
-                "count_per_day": count_per_day,
-                "period_date": day.isoformat(),
-                "fire_index": 0,
-            }
-            return _sample_between(lower, end), config
+            count_per_day = _choose_count(count_min, count_max)
+            fire_times = _sample_daytime_plan(lower, end, count=count_per_day)
+            config = _new_random_daytime_config(
+                window_start=window_start,
+                window_end=window_end,
+                timezone=timezone,
+                count_min=count_min,
+                count_max=count_max,
+                period_date=day,
+                fire_times=fire_times,
+            )
+            return fire_times[0], config
     raise ValueError("could not sample a future daytime fire")
 
 
@@ -585,20 +618,32 @@ def _next_random_daytime_fire(rule: Rule, *, after: datetime) -> tuple[datetime,
     fire_index = int(config.get("fire_index", 0))
     period_date = date.fromisoformat(str(config["period_date"]))
     local_after = after.astimezone(tz)
+    fire_times = [
+        parse_datetime(raw_fire_time)
+        for raw_fire_time in config.get("fire_times", [])
+    ]
 
     next_index = fire_index + 1
-    if next_index < count_per_day:
+    while next_index < len(fire_times) and fire_times[next_index] <= after:
+        next_index += 1
+    if next_index < len(fire_times):
+        config["fire_index"] = next_index
+        return fire_times[next_index], config
+
+    if not fire_times and next_index < count_per_day:
         start, end = _window_bounds(period_date, start=window_start, end=window_end, tz=tz)
         lower = max(local_after + timedelta(seconds=1), start)
         if lower < end:
-            config["fire_index"] = next_index
-            return _sample_between(lower, end), config
+            fire_times = _sample_daytime_plan(lower, end, count=count_per_day - next_index)
+            config["fire_index"] = 0
+            config["fire_times"] = [format_dt(fire_time) for fire_time in fire_times]
+            return fire_times[0], config
 
-    next_day = max(period_date + timedelta(days=1), local_after.date())
-    if next_day == local_after.date():
-        start, end = _window_bounds(next_day, start=window_start, end=window_end, tz=tz)
-        if local_after >= end:
-            next_day = next_day + timedelta(days=1)
+    if period_date >= local_after.date():
+        next_day = period_date + timedelta(days=1)
+        after_for_resample = datetime.combine(next_day, time(0, 0), tzinfo=tz)
+    else:
+        after_for_resample = local_after + timedelta(seconds=1)
 
     return _first_random_daytime_fire(
         window_start=window_start,
@@ -607,5 +652,5 @@ def _next_random_daytime_fire(rule: Rule, *, after: datetime) -> tuple[datetime,
         timezone=timezone,
         count_min=count_min,
         count_max=count_max,
-        after=datetime.combine(next_day, time(0, 0), tzinfo=tz),
+        after=after_for_resample,
     )
