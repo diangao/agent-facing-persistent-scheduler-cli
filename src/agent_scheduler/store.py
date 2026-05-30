@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 import json
 from pathlib import Path
+import random
 import sqlite3
 import uuid
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .timeparse import format_dt, parse_datetime, parse_duration, utc_now
 
@@ -26,6 +28,7 @@ class Rule:
     payload: dict
     enabled: bool
     interval_seconds: int | None
+    random_config: dict | None
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +57,7 @@ class SchedulerStore:
               payload_json text not null,
               enabled integer not null default 1,
               interval_seconds integer,
+              random_config_json text,
               created_at text not null,
               updated_at text not null
             );
@@ -79,6 +83,8 @@ class SchedulerStore:
             self.conn.execute("alter table rules add column namespace text")
         if "target" not in existing:
             self.conn.execute("alter table rules add column target text")
+        if "random_config_json" not in existing:
+            self.conn.execute("alter table rules add column random_config_json text")
 
     def create_rule(
         self,
@@ -100,9 +106,10 @@ class SchedulerStore:
         self.conn.execute(
             """
             insert into rules (
-              id, title, namespace, target, schedule_kind, next_fire_at, payload_json, enabled,
-              interval_seconds, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+              id, title, namespace, target, schedule_kind, next_fire_at,
+              payload_json, enabled, interval_seconds, random_config_json,
+              created_at, updated_at
+            ) values (?, ?, ?, ?, ?, ?, ?, 1, ?, null, ?, ?)
             """,
             (
                 rule_id,
@@ -113,6 +120,54 @@ class SchedulerStore:
                 format_dt(next_fire_at),
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),
                 interval_seconds,
+                format_dt(now),
+                format_dt(now),
+            ),
+        )
+        self.conn.commit()
+        return self.get_rule(rule_id)
+
+    def create_random_daytime_rule(
+        self,
+        *,
+        title: str,
+        payload: dict,
+        window: str,
+        timezone: str,
+        count_per_day: int,
+        namespace: str | None = None,
+        target: str | None = None,
+    ) -> Rule:
+        if count_per_day <= 0:
+            raise ValueError("count_per_day must be positive")
+        window_start, window_end = _parse_window(window)
+        tz = _load_timezone(timezone)
+        now = utc_now()
+        next_fire_at, config = _first_random_daytime_fire(
+            window_start=window_start,
+            window_end=window_end,
+            tz=tz,
+            timezone=timezone,
+            count_per_day=count_per_day,
+            after=now,
+        )
+        rule_id = "r_" + uuid.uuid4().hex[:12]
+        self.conn.execute(
+            """
+            insert into rules (
+              id, title, namespace, target, schedule_kind, next_fire_at,
+              payload_json, enabled, interval_seconds, random_config_json,
+              created_at, updated_at
+            ) values (?, ?, ?, ?, 'random-daytime', ?, ?, 1, null, ?, ?, ?)
+            """,
+            (
+                rule_id,
+                title,
+                _normalize_optional_string(namespace),
+                _normalize_optional_string(target),
+                format_dt(next_fire_at),
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                json.dumps(config, ensure_ascii=False, sort_keys=True),
                 format_dt(now),
                 format_dt(now),
             ),
@@ -173,6 +228,7 @@ class SchedulerStore:
         if interval is not None:
             fields.append("schedule_kind = 'interval'")
             fields.append("interval_seconds = ?")
+            fields.append("random_config_json = null")
             params.append(int(parse_duration(interval).total_seconds()))
         if namespace is not None:
             fields.append("namespace = ?")
@@ -249,6 +305,21 @@ class SchedulerStore:
                 "update rules set next_fire_at = ?, updated_at = ? where id = ?",
                 (format_dt(next_fire), format_dt(fired), rule.id),
             )
+        elif rule.schedule_kind == "random-daytime" and rule.random_config:
+            next_fire, config = _next_random_daytime_fire(rule, after=fired)
+            self.conn.execute(
+                """
+                update rules
+                set next_fire_at = ?, random_config_json = ?, updated_at = ?
+                where id = ?
+                """,
+                (
+                    format_dt(next_fire),
+                    json.dumps(config, ensure_ascii=False, sort_keys=True),
+                    format_dt(fired),
+                    rule.id,
+                ),
+            )
         else:
             self.conn.execute(
                 "update rules set enabled = 0, updated_at = ? where id = ?",
@@ -314,6 +385,21 @@ class SchedulerStore:
                 "update rules set next_fire_at = ?, updated_at = ? where id = ?",
                 (format_dt(next_fire), format_dt(detected), rule.id),
             )
+        elif rule.schedule_kind == "random-daytime" and rule.random_config:
+            next_fire, config = _next_random_daytime_fire(rule, after=detected)
+            self.conn.execute(
+                """
+                update rules
+                set next_fire_at = ?, random_config_json = ?, updated_at = ?
+                where id = ?
+                """,
+                (
+                    format_dt(next_fire),
+                    json.dumps(config, ensure_ascii=False, sort_keys=True),
+                    format_dt(detected),
+                    rule.id,
+                ),
+            )
         else:
             self.conn.execute(
                 "update rules set enabled = 0, updated_at = ? where id = ?",
@@ -355,6 +441,11 @@ class SchedulerStore:
             payload=json.loads(row["payload_json"]),
             enabled=bool(row["enabled"]),
             interval_seconds=row["interval_seconds"],
+            random_config=(
+                json.loads(row["random_config_json"])
+                if row["random_config_json"]
+                else None
+            ),
             created_at=parse_datetime(row["created_at"]),
             updated_at=parse_datetime(row["updated_at"]),
         )
@@ -375,3 +466,113 @@ def _next_future_fire(rule: Rule, *, after: datetime) -> datetime:
     while next_fire <= after:
         next_fire = next_fire + interval
     return next_fire
+
+
+def _load_timezone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"unknown timezone: {name}") from exc
+
+
+def _parse_clock(value: str) -> time:
+    parts = value.strip().split(":")
+    if len(parts) != 2:
+        raise ValueError("time must look like HH:MM")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError as exc:
+        raise ValueError("time must look like HH:MM") from exc
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValueError("time must look like HH:MM")
+    return time(hour=hour, minute=minute)
+
+
+def _parse_window(value: str) -> tuple[time, time]:
+    if "-" not in value:
+        raise ValueError("window must look like HH:MM-HH:MM")
+    start_raw, end_raw = value.split("-", 1)
+    start = _parse_clock(start_raw)
+    end = _parse_clock(end_raw)
+    if start >= end:
+        raise ValueError("random daytime window must start before it ends")
+    return start, end
+
+
+def _window_bounds(day: date, *, start: time, end: time, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    return (
+        datetime.combine(day, start, tzinfo=tz),
+        datetime.combine(day, end, tzinfo=tz),
+    )
+
+
+def _sample_between(start: datetime, end: datetime) -> datetime:
+    seconds = int((end - start).total_seconds())
+    if seconds <= 0:
+        raise ValueError("random daytime window has no future time to sample")
+    return (start + timedelta(seconds=random.randint(0, seconds))).astimezone(UTC).replace(
+        microsecond=0
+    )
+
+
+def _first_random_daytime_fire(
+    *,
+    window_start: time,
+    window_end: time,
+    tz: ZoneInfo,
+    timezone: str,
+    count_per_day: int,
+    after: datetime,
+) -> tuple[datetime, dict]:
+    local_after = after.astimezone(tz)
+    for offset in range(370):
+        day = local_after.date() + timedelta(days=offset)
+        start, end = _window_bounds(day, start=window_start, end=window_end, tz=tz)
+        lower = max(local_after, start) if offset == 0 else start
+        if lower < end:
+            config = {
+                "window_start": window_start.strftime("%H:%M"),
+                "window_end": window_end.strftime("%H:%M"),
+                "timezone": timezone,
+                "count_per_day": count_per_day,
+                "period_date": day.isoformat(),
+                "fire_index": 0,
+            }
+            return _sample_between(lower, end), config
+    raise ValueError("could not sample a future daytime fire")
+
+
+def _next_random_daytime_fire(rule: Rule, *, after: datetime) -> tuple[datetime, dict]:
+    config = dict(rule.random_config or {})
+    window_start = _parse_clock(str(config["window_start"]))
+    window_end = _parse_clock(str(config["window_end"]))
+    timezone = str(config["timezone"])
+    tz = _load_timezone(timezone)
+    count_per_day = int(config["count_per_day"])
+    fire_index = int(config.get("fire_index", 0))
+    period_date = date.fromisoformat(str(config["period_date"]))
+    local_after = after.astimezone(tz)
+
+    next_index = fire_index + 1
+    if next_index < count_per_day:
+        start, end = _window_bounds(period_date, start=window_start, end=window_end, tz=tz)
+        lower = max(local_after + timedelta(seconds=1), start)
+        if lower < end:
+            config["fire_index"] = next_index
+            return _sample_between(lower, end), config
+
+    next_day = max(period_date + timedelta(days=1), local_after.date())
+    if next_day == local_after.date():
+        start, end = _window_bounds(next_day, start=window_start, end=window_end, tz=tz)
+        if local_after >= end:
+            next_day = next_day + timedelta(days=1)
+
+    return _first_random_daytime_fire(
+        window_start=window_start,
+        window_end=window_end,
+        tz=tz,
+        timezone=timezone,
+        count_per_day=count_per_day,
+        after=datetime.combine(next_day, time(0, 0), tzinfo=tz),
+    )

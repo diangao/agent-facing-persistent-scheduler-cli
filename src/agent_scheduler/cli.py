@@ -45,6 +45,7 @@ def _rule_to_dict(rule: Rule) -> dict:
         "next_fire_at": format_dt(rule.next_fire_at),
         "enabled": rule.enabled,
         "interval_seconds": rule.interval_seconds,
+        "random_config": rule.random_config,
         "payload": rule.payload,
         "created_at": format_dt(rule.created_at),
         "updated_at": format_dt(rule.updated_at),
@@ -62,15 +63,29 @@ def _store(args: argparse.Namespace) -> SchedulerStore:
 def cmd_create(args: argparse.Namespace) -> int:
     store = _store(args)
     try:
-        next_fire_at = parse_due_time(at=args.at, in_=args.in_)
-        rule = store.create_rule(
-            title=args.title,
-            next_fire_at=next_fire_at,
-            payload=_load_payload(args),
-            interval=args.every,
-            namespace=args.namespace,
-            target=args.target,
-        )
+        payload = _load_payload(args)
+        if args.random_daytime:
+            if args.every:
+                raise ValueError("--every cannot be combined with --random-daytime")
+            rule = store.create_random_daytime_rule(
+                title=args.title,
+                payload=payload,
+                window=args.window,
+                timezone=args.timezone,
+                count_per_day=args.count,
+                namespace=args.namespace,
+                target=args.target,
+            )
+        else:
+            next_fire_at = parse_due_time(at=args.at, in_=args.in_)
+            rule = store.create_rule(
+                title=args.title,
+                next_fire_at=next_fire_at,
+                payload=payload,
+                interval=args.every,
+                namespace=args.namespace,
+                target=args.target,
+            )
         _print_json(_rule_to_dict(rule))
         return 0
     finally:
@@ -202,6 +217,10 @@ def build_parser() -> argparse.ArgumentParser:
     due = create.add_mutually_exclusive_group(required=True)
     due.add_argument("--at", help="ISO datetime, e.g. 2026-05-29T20:00:00Z")
     due.add_argument("--in", dest="in_", help="relative duration, e.g. 10m, 2h, 1d")
+    due.add_argument("--random-daytime", action="store_true", help="sample durable fires inside a daytime window")
+    create.add_argument("--window", default="09:00-22:30", help="random daytime local window, HH:MM-HH:MM")
+    create.add_argument("--timezone", default="UTC", help="IANA timezone for --random-daytime")
+    create.add_argument("--count", type=int, default=1, help="fires per day for --random-daytime")
     create.add_argument("--every", help="repeat interval, e.g. 30m, 1h, 1d")
     payload = create.add_mutually_exclusive_group(required=True)
     payload.add_argument("--payload", type=_json_arg, help="JSON object payload")

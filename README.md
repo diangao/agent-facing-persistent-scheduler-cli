@@ -73,6 +73,28 @@ Snooze the next fire:
 agent-scheduler snooze r_abc123 --for 10m
 ```
 
+## Random daytime signals
+
+Adapters that want proactive daytime check-ins can create a durable
+random-daytime rule. The runtime chooses the count and payload; the scheduler
+samples the next fire time inside the window and persists that sampled time so
+restart does not resample it.
+
+```bash
+agent-scheduler create \
+  --title "daytime check-in" \
+  --random-daytime \
+  --window 09:00-22:30 \
+  --timezone America/Los_Angeles \
+  --count 2 \
+  --payload '{"type":"agent.check_in","text":"Consider a lightweight check-in."}'
+```
+
+When a random-daytime rule fires, it emits the same `scheduler.fire` event as
+other rules, then samples and persists the next future daytime slot. Missed
+random-daytime rules emit one `scheduler.missed` event and resample a future
+slot; they do not burst-fire skipped slots after downtime.
+
 ## Event contract
 
 `run-due` and `daemon` emit one JSON object per due rule. A freshly due rule
@@ -145,6 +167,7 @@ Implemented:
 - local SQLite store under `~/.agent-scheduler/scheduler.sqlite3`
 - one-shot rules via `--at` or `--in`
 - interval rules via `--every`
+- random daytime rules via `--random-daytime --window HH:MM-HH:MM --timezone ... --count N`
 - `create`, `list`, `show`, `update`, `cancel`, `snooze`, `log`, `run-due`, `fire-now`, `daemon`
 - payload from `--payload`, `--payload-file`, or `--payload-stdin`
 - optional opaque `--namespace` and `--target` routing metadata

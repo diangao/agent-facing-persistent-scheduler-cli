@@ -456,6 +456,124 @@ class SchedulerCliTest(unittest.TestCase):
             code, _out = self.run_cli(db, "snooze", rule_id, "--until", "2000-01-01T00:00:00Z")
             self.assertEqual(code, 2)
 
+    def test_random_daytime_rule_samples_inside_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            with patch(
+                "agent_scheduler.store.utc_now",
+                return_value=datetime(2026, 5, 29, 15, 0, tzinfo=UTC),
+            ):
+                code, out = self.run_cli(
+                    db,
+                    "create",
+                    "--title",
+                    "daytime check",
+                    "--random-daytime",
+                    "--window",
+                    "09:00-17:00",
+                    "--timezone",
+                    "UTC",
+                    "--count",
+                    "2",
+                    "--payload",
+                    '{"kind":"proactive"}',
+                )
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            self.assertEqual(rule["schedule_kind"], "random-daytime")
+            self.assertEqual(rule["random_config"]["window_start"], "09:00")
+            self.assertEqual(rule["random_config"]["window_end"], "17:00")
+            self.assertEqual(rule["random_config"]["timezone"], "UTC")
+            self.assertEqual(rule["random_config"]["count_per_day"], 2)
+            next_fire = datetime.fromisoformat(
+                rule["next_fire_at"].replace("Z", "+00:00")
+            )
+            self.assertGreaterEqual(next_fire, datetime(2026, 5, 29, 15, 0, tzinfo=UTC))
+            self.assertLessEqual(next_fire, datetime(2026, 5, 29, 17, 0, tzinfo=UTC))
+
+    def test_random_daytime_fire_resamples_future_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            with patch(
+                "agent_scheduler.store.utc_now",
+                return_value=datetime(2026, 5, 29, 8, 0, tzinfo=UTC),
+            ):
+                code, out = self.run_cli(
+                    db,
+                    "create",
+                    "--title",
+                    "daily random",
+                    "--random-daytime",
+                    "--window",
+                    "09:00-17:00",
+                    "--timezone",
+                    "UTC",
+                    "--count",
+                    "1",
+                    "--payload",
+                    '{"kind":"proactive"}',
+                )
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            rule_id = rule["id"]
+
+            code, out = self.run_cli(
+                db,
+                "run-due",
+                "--now",
+                rule["next_fire_at"],
+            )
+            self.assertEqual(code, 0)
+            event = json.loads(out)
+            self.assertEqual(event["type"], "scheduler.fire")
+            self.assertEqual(event["rule_id"], rule_id)
+
+            code, out = self.run_cli(db, "show", rule_id)
+            self.assertEqual(code, 0)
+            updated = json.loads(out)
+            self.assertTrue(updated["enabled"])
+            self.assertEqual(updated["schedule_kind"], "random-daytime")
+            self.assertGreater(updated["next_fire_at"], rule["next_fire_at"])
+
+    def test_missed_random_daytime_emits_missed_and_resamples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "scheduler.sqlite3"
+            with patch(
+                "agent_scheduler.store.utc_now",
+                return_value=datetime(2026, 5, 29, 8, 0, tzinfo=UTC),
+            ):
+                code, out = self.run_cli(
+                    db,
+                    "create",
+                    "--title",
+                    "missed random",
+                    "--random-daytime",
+                    "--window",
+                    "09:00-17:00",
+                    "--timezone",
+                    "UTC",
+                    "--count",
+                    "1",
+                    "--payload",
+                    '{"kind":"proactive"}',
+                )
+            self.assertEqual(code, 0)
+            rule = json.loads(out)
+            rule_id = rule["id"]
+
+            code, out = self.run_cli(db, "run-due", "--now", "2026-05-30T20:00:00Z")
+            self.assertEqual(code, 0)
+            event = json.loads(out)
+            self.assertEqual(event["type"], "scheduler.missed")
+            self.assertEqual(event["rule_id"], rule_id)
+
+            code, out = self.run_cli(db, "show", rule_id)
+            self.assertEqual(code, 0)
+            updated = json.loads(out)
+            self.assertTrue(updated["enabled"])
+            self.assertEqual(updated["schedule_kind"], "random-daytime")
+            self.assertGreater(updated["next_fire_at"], "2026-05-30T20:00:00Z")
+
 
 if __name__ == "__main__":
     unittest.main()
