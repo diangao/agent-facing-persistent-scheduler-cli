@@ -189,7 +189,8 @@ Available commands:
 - `agent-scheduler create --at <ISO time> --payload '<JSON object>'`
 - `agent-scheduler create --in <duration like 10m / 2h / 1d> --payload '<JSON object>'`
 - `agent-scheduler create --every <duration like 1h / 1d / 1w> --payload '<JSON object>'` (recurring)
-- `agent-scheduler create --random-daytime --window HH:MM-HH:MM --timezone <IANA tz> --count <N> --payload '<JSON object>'` (N random fires per day inside the wall-clock window)
+- `agent-scheduler create --random-daytime --window HH:MM-HH:MM --timezone <IANA tz> --count <N> --payload '<JSON object>'` (fixed N random fires per day inside the wall-clock window)
+- `agent-scheduler create --random-daytime --window HH:MM-HH:MM --timezone <IANA tz> --count-range MIN-MAX --payload '<JSON object>'` (variable fires per day; core resamples N within [MIN, MAX] at each local midnight rollover)
 - `agent-scheduler list / show <rule_id> / update <rule_id> / snooze <rule_id> / cancel <rule_id> / log <rule_id>`
 
 When creating a user-facing reminder, use an explicit payload such as:
@@ -235,7 +236,8 @@ so the outer daemon routes the fire back to this runtime:
 - `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --at <ISO time> --payload '<JSON object>'`
 - `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --in <duration> --payload '<JSON object>'`
 - `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --every <duration> --payload '<JSON object>'` (recurring)
-- `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --random-daytime --window HH:MM-HH:MM --timezone <IANA tz> --count <N> --payload '<JSON object>'` (N random fires per day inside the wall-clock window)
+- `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --random-daytime --window HH:MM-HH:MM --timezone <IANA tz> --count <N> --payload '<JSON object>'` (fixed N random fires per day inside the wall-clock window)
+- `agent-scheduler create --namespace <adapter-namespace> --target <runtime-target> --random-daytime --window HH:MM-HH:MM --timezone <IANA tz> --count-range MIN-MAX --payload '<JSON object>'` (variable fires per day; core resamples N within [MIN, MAX] at each local midnight rollover)
 - `agent-scheduler list / show / update / snooze / cancel / log`
 
 Namespace and target are opaque routing labels. They do not authenticate
